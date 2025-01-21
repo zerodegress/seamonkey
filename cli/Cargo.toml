@@ -1,0 +1,25 @@
+[package]
+name = "seamonkey_cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+async_zip = { version = "0.0.17", features = ["full"] }
+chrono = "0.4.39"
+clap = { version = "4.5.26", features = ["derive"] }
+env_logger = "0.11.6"
+futures-lite = "2.6.0"
+indicatif = "0.17.9"
+log = "0.4.25"
+sanitize-filename = "0.6.0"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.136"
+sha256 = "1.5.0"
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", features = ["full"] }
+tokio-util = { version = "0.7.13", features = ["io"] }
+toml = "0.8.19"
+url = "2.5.4"
+uuid = { version = "1.12.0", features = ["fast-rng", "v4"] }
+zip = "2.2.2"
