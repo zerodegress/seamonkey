@@ -22,4 +22,3 @@ tokio-util = { version = "0.7.13", features = ["io"] }
 toml = "0.8.19"
 url = "2.5.4"
 uuid = { version = "1.12.0", features = ["fast-rng", "v4"] }
-zip = "2.2.2"
