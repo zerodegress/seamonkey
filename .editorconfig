@@ -5,3 +5,6 @@ indent_size = 2
 
 [*.rs]
 indent_size = 2
+
+[*.ui]
+indent_size = 2

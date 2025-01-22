@@ -138,32 +138,36 @@ async fn run_with_handle_error(cli: cli::Cli, temp_dir: &TempDir) {
         Error::Install(install::Error::FileConflict(_, check_list)) => {
           print_error(&err);
           println!("是否卸载冲突的所有Mod？[y/N]");
-          let mut buf = String::new();
-          match std::io::stdin().read_line(&mut buf).map_err(Error::Io) {
-            Ok(_) => {
-              if buf.starts_with("Y") || buf.starts_with("y") {
-                if let Err(err) = {
-                  let res_mods_dir = find_res_mods_dir(&cli.game_dir).await;
-                  match res_mods_dir {
-                    Err(err) => Err(err),
-                    Ok(res_mods_dir) => uninstall::uninstall(
-                      &res_mods_dir,
-                      check_list
-                        .iter()
-                        .map(|check| check.installed.to_owned())
-                        .collect(),
-                    )
-                    .await
-                    .map_err(Error::Uninstall),
-                  }
-                } {
-                  print_error(&err);
-                } else {
-                  continue;
-                }
+          if cli.yes_for_all || {
+            let mut buf = String::new();
+            match std::io::stdin().read_line(&mut buf).map_err(Error::Io) {
+              Ok(_) if buf.starts_with("Y") || buf.starts_with("y") => true,
+              Ok(_) => false,
+              Err(err) => {
+                print_error(&err);
+                false
               }
             }
-            Err(err) => print_error(&err),
+          } {
+            if let Err(err) = {
+              let res_mods_dir = find_res_mods_dir(&cli.game_dir).await;
+              match res_mods_dir {
+                Err(err) => Err(err),
+                Ok(res_mods_dir) => uninstall::uninstall(
+                  &res_mods_dir,
+                  check_list
+                    .iter()
+                    .map(|check| check.installed.to_owned())
+                    .collect(),
+                )
+                .await
+                .map_err(Error::Uninstall),
+              }
+            } {
+              print_error(&err);
+            } else {
+              continue;
+            }
           }
         }
         err => print_error(err),
@@ -179,17 +183,20 @@ async fn run(cli: &cli::Cli, temp_dir: &TempDir) -> Result<(), Error> {
   let res_mods_dir = find_res_mods_dir(&cli.game_dir).await?;
 
   match &cli.subcommand {
-    cli::SubCommand::Install { items } => {
-      install::install(res_mods_dir.as_ref(), items.to_owned(), temp_dir)
-        .await
-        .map_err(Error::Install)
-    }
+    cli::SubCommand::Install { items } => install::install(
+      res_mods_dir.as_ref(),
+      items.to_owned(),
+      temp_dir,
+      cli.yes_for_all,
+    )
+    .await
+    .map_err(Error::Install),
     cli::SubCommand::Uninstall { items } => {
       uninstall::uninstall(res_mods_dir.as_ref(), items.to_owned())
         .await
         .map_err(Error::Uninstall)
     }
-    cli::SubCommand::Update {} => update::update(res_mods_dir.as_ref(), temp_dir)
+    cli::SubCommand::Update {} => update::update(res_mods_dir.as_ref(), temp_dir, cli.yes_for_all)
       .await
       .map_err(Error::Update),
   }

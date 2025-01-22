@@ -7,6 +7,8 @@ use clap::{Parser, Subcommand};
 pub struct Cli {
   #[arg(short, long)]
   pub game_dir: Option<PathBuf>,
+  #[arg(short)]
+  pub yes_for_all: bool,
   #[command(subcommand)]
   pub subcommand: SubCommand,
 }

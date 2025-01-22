@@ -48,6 +48,13 @@ pub enum Error {
   Uninstall(uninstall::Error),
 }
 
+#[derive(Debug, Clone)]
+struct Options {
+  pub warn_no_metadata: bool,
+  pub override_metadata: Option<record::Metadata>,
+  pub yes_for_all: bool,
+}
+
 #[derive(Debug)]
 pub struct FileConfilctCheck {
   pub installed: String,
@@ -58,6 +65,7 @@ pub async fn install(
   res_mods_dir: &Path,
   items: Vec<String>,
   temp_dir: &TempDir,
+  yes_for_all: bool,
 ) -> Result<(), Error> {
   let mut req_client = reqwest::Client::new();
 
@@ -69,7 +77,12 @@ pub async fn install(
       if let Ok(url) = item.parse::<Url>() {
         match url.scheme() {
           "file" => {
-            install_from_file(res_mods_dir, PathBuf::from(url.path()).as_ref()).await?;
+            install_from_file(
+              res_mods_dir,
+              PathBuf::from(url.path()).as_ref(),
+              yes_for_all,
+            )
+            .await?;
           }
           "http" | "https" => {
             install_from_web(
@@ -78,21 +91,30 @@ pub async fn install(
               temp_dir,
               &mut req_client,
               None,
-              true,
-              None,
+              Options {
+                warn_no_metadata: true,
+                override_metadata: None,
+                yes_for_all,
+              },
             )
             .await?
           }
           "localizedkorabli" => match url.host() {
             Some(host) if host.to_string().as_str() == "game" => {
-              install_gh_localized_korabli_game(res_mods_dir, temp_dir, &mut req_client).await?;
+              install_gh_localized_korabli_game(
+                res_mods_dir,
+                temp_dir,
+                &mut req_client,
+                yes_for_all,
+              )
+              .await?;
             }
             Some(_) | None => return Err(Error::UnknownUrlScheme("localized_korabli".to_owned())),
           },
           scheme => return Err(Error::UnknownUrlScheme(scheme.to_owned())),
         }
       } else {
-        install_from_file(res_mods_dir, PathBuf::from(item).as_ref()).await?;
+        install_from_file(res_mods_dir, PathBuf::from(item).as_ref(), yes_for_all).await?;
       }
     }
     Ok(())
@@ -103,6 +125,7 @@ async fn install_gh_localized_korabli_game(
   res_mods_dir: &Path,
   temp_dir: &TempDir,
   req_client: &mut reqwest::Client,
+  yes_for_all: bool,
 ) -> Result<(), Error> {
   let test_client = reqwest::Client::builder()
     .redirect(reqwest::redirect::Policy::none()) // 禁止重定向
@@ -131,16 +154,19 @@ async fn install_gh_localized_korabli_game(
         temp_dir,
         req_client,
         Some("localized_korabli_game".to_string()),
-        false,
-        Some(record::Metadata {
-          id: "localized_korabli_game".to_string(),
-          name: "澪刻•战舰世界莱服本地化".to_string(),
-          description: "战舰世界俄服汉化（船舶世界；Мир Корабли；Мир кораблей；Mir Korabli；World of Warships；WOWS；莱服；毛服；LESTA；本地化；中文化；中文补丁）".to_string(),
-          authors: vec!["北斗余晖".to_string()],
-          url: "https://github.com/LocalizedKorabli/Korabli-LESTA-L10N".to_string(),
-          version: latest_version.to_string(),
-          update: "localizedkorabli://game".to_string(),
-        })
+        Options {
+          warn_no_metadata: false,
+          override_metadata: Some(record::Metadata {
+            id: "localized_korabli_game".to_string(),
+            name: "澪刻•战舰世界莱服本地化".to_string(),
+            description: "战舰世界俄服汉化（船舶世界；Мир Корабли；Мир кораблей；Mir Korabli；World of Warships；WOWS；莱服；毛服；LESTA；本地化；中文化；中文补丁）".to_string(),
+            authors: vec!["北斗余晖".to_string()],
+            url: "https://github.com/LocalizedKorabli/Korabli-LESTA-L10N".to_string(),
+            version: latest_version.to_string(),
+            update: "localizedkorabli://game".to_string(),
+          }),
+          yes_for_all,
+        }
       )
       .await
     } else {
@@ -160,8 +186,7 @@ async fn install_from_web(
   temp_dir: &TempDir,
   req_client: &mut reqwest::Client,
   install_id: Option<String>,
-  warn_no_metadata: bool,
-  override_metadata: Option<record::Metadata>,
+  options: Options,
 ) -> Result<(), Error> {
   let temp_dir = temp_dir.path();
   let temp_file = temp_dir.join(sha256::digest(mod_to_install.to_string()));
@@ -198,15 +223,18 @@ async fn install_from_web(
     mod_to_install.to_owned(),
     sha256.to_owned(),
     install_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
-    warn_no_metadata,
-    override_metadata,
+    options,
   )
   .await?;
 
   Ok(())
 }
 
-async fn install_from_file(res_mods_dir: &Path, mod_to_install: &Path) -> Result<(), Error> {
+async fn install_from_file(
+  res_mods_dir: &Path,
+  mod_to_install: &Path,
+  yes_for_all: bool,
+) -> Result<(), Error> {
   let from_url = Url::from_file_path(if mod_to_install.is_absolute() {
     mod_to_install.to_string_lossy().to_string()
   } else {
@@ -232,8 +260,11 @@ async fn install_from_file(res_mods_dir: &Path, mod_to_install: &Path) -> Result
     from_url,
     sha256,
     Uuid::new_v4().to_string(),
-    true,
-    None,
+    Options {
+      warn_no_metadata: true,
+      override_metadata: None,
+      yes_for_all,
+    },
   )
   .await
 }
@@ -244,8 +275,7 @@ async fn install_zip(
   from_url: Url,
   sha256: String,
   install_id: String,
-  warn_no_metadata: bool,
-  override_metadata: Option<record::Metadata>,
+  options: Options,
 ) -> Result<(), Error> {
   let mut record = record::read_record(res_mods_dir)
     .await
@@ -280,7 +310,7 @@ async fn install_zip(
       .collect::<Result<Vec<_>, _>>()
       .map_err(Error::Zip)?,
     metadata: {
-      if let Some(override_metadata) = override_metadata {
+      if let Some(override_metadata) = options.override_metadata {
         Some(override_metadata)
       } else if let Some((index, _)) =
         mod_to_install_zip
@@ -306,7 +336,7 @@ async fn install_zip(
           toml::from_str(buf.as_str()).map_err(Error::DeToml)?
         })
       } else {
-        if warn_no_metadata {
+        if options.warn_no_metadata && !options.yes_for_all {
           warn!("metadata not found");
           println!("未找到元数据，确认要安装吗？[Y/n]");
           let mut buf = String::new();
@@ -343,11 +373,15 @@ async fn install_zip(
         "检测到已安装的{}，版本{}，将要安装版本{}，是否升级？[Y/n]",
         metadata_.id, metadata_.version, metadata.version
       );
-      let mut buf = String::new();
-      if std::io::stdin().read_line(&mut buf).is_ok()
-        && (buf.starts_with("N") || buf.starts_with("n"))
-      {
-        Err(Error::UserInterrupt)
+      if !options.yes_for_all {
+        let mut buf = String::new();
+        if std::io::stdin().read_line(&mut buf).is_ok()
+          && (buf.starts_with("N") || buf.starts_with("n"))
+        {
+          Err(Error::UserInterrupt)
+        } else {
+          Ok(install_id_)
+        }
       } else {
         Ok(install_id_)
       }
