@@ -2,6 +2,7 @@ use std::{path::PathBuf, process::exit};
 
 use clap::Parser;
 use log::{debug, error};
+use temp_dir::TempDir;
 use tokio::fs;
 
 mod cli;
@@ -13,7 +14,8 @@ mod uninstall;
 async fn main() {
   env_logger::init();
   let cli = cli::Cli::parse();
-  run_with_handle_error(cli).await;
+  let temp_dir = TempDir::with_prefix("seamonkey").expect("wtf temp dir");
+  run_with_handle_error(cli, &temp_dir).await;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -85,6 +87,9 @@ fn print_error(err: &Error) {
       install::Error::UserInterrupt => {
         println!("安装已被用户取消");
       }
+      install::Error::Reqwest(err) => {
+        println!("网络错误：{}", err);
+      }
     },
     Error::Uninstall(err) => match err {
       uninstall::Error::Io(err) => {
@@ -100,9 +105,9 @@ fn print_error(err: &Error) {
   }
 }
 
-async fn run_with_handle_error(cli: cli::Cli) {
+async fn run_with_handle_error(cli: cli::Cli, temp_dir: &TempDir) {
   for _ in 0..=3 {
-    if let Err(err) = run(&cli).await {
+    if let Err(err) = run(&cli, temp_dir).await {
       match &err {
         Error::Install(install::Error::FileConflict(_, check_list)) => {
           print_error(&err);
@@ -144,13 +149,15 @@ async fn run_with_handle_error(cli: cli::Cli) {
   }
 }
 
-async fn run(cli: &cli::Cli) -> Result<(), Error> {
+async fn run(cli: &cli::Cli, temp_dir: &TempDir) -> Result<(), Error> {
   let res_mods_dir = find_res_mods_dir(&cli.game_dir).await?;
 
   match &cli.subcommand {
-    cli::SubCommand::Install { items } => install::install(res_mods_dir.as_ref(), items.to_owned())
-      .await
-      .map_err(Error::Install),
+    cli::SubCommand::Install { items } => {
+      install::install(res_mods_dir.as_ref(), items.to_owned(), temp_dir)
+        .await
+        .map_err(Error::Install)
+    }
     cli::SubCommand::Uninstall { items } => {
       uninstall::uninstall(res_mods_dir.as_ref(), items.to_owned())
         .await
