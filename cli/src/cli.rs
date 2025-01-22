@@ -18,4 +18,8 @@ pub enum SubCommand {
     #[arg()]
     items: Vec<String>,
   },
+  Uninstall {
+    #[arg()]
+    items: Vec<String>,
+  },
 }

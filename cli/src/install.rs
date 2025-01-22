@@ -1,8 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use async_zip::{error::ZipError, tokio::read::fs::ZipFileReader};
+use async_zip::error::ZipError;
 use futures_lite::AsyncReadExt;
-use tokio::{fs, io::BufReader};
+use log::debug;
+use tokio::{
+  fs,
+  io::{AsyncBufRead, AsyncSeek, BufReader},
+};
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use url::Url;
 use uuid::Uuid;
@@ -36,6 +40,7 @@ pub struct FileConfilctCheck {
 }
 
 pub async fn install(res_mods_dir: &Path, items: Vec<String>) -> Result<(), Error> {
+  debug!("install: {:?}", items);
   if items.is_empty() {
     Err(Error::NoModToInstall)
   } else {
@@ -71,17 +76,35 @@ async fn install_from_file(res_mods_dir: &Path, mod_to_install: &Path) -> Result
     return Err(Error::ModNotFound(from_url.to_owned()));
   }
 
-  let mut record = record::read_record(res_mods_dir)
-    .await
-    .map_err(Error::Record)?;
-
   let sha256 = sha256::try_async_digest(mod_to_install)
     .await
     .map_err(Error::Io)?;
 
-  let mod_to_install_zip = ZipFileReader::new(mod_to_install)
+  install_zip(
+    res_mods_dir,
+    BufReader::new(fs::File::open(mod_to_install).await.map_err(Error::Io)?),
+    from_url,
+    sha256,
+    Uuid::new_v4().to_string(),
+  )
+  .await
+}
+
+async fn install_zip(
+  res_mods_dir: &Path,
+  mod_to_install: impl AsyncBufRead + AsyncSeek + Unpin,
+  from_url: Url,
+  sha256: String,
+  install_id: String,
+) -> Result<(), Error> {
+  let mut record = record::read_record(res_mods_dir)
     .await
-    .map_err(Error::Zip)?;
+    .map_err(Error::Record)?;
+
+  let mut mod_to_install_zip =
+    async_zip::tokio::read::seek::ZipFileReader::with_tokio(mod_to_install)
+      .await
+      .map_err(Error::Zip)?;
 
   let record_item = record::RecordItem {
     sha256,
@@ -162,11 +185,15 @@ async fn install_from_file(res_mods_dir: &Path, mod_to_install: &Path) -> Result
     }
   }
 
-  record
-    .installed
-    .insert(Uuid::new_v4().to_string(), record_item);
+  record.installed.insert(install_id, record_item);
 
-  for (index, file) in mod_to_install_zip.file().entries().iter().enumerate() {
+  for (index, file) in mod_to_install_zip
+    .file()
+    .entries()
+    .to_vec()
+    .iter()
+    .enumerate()
+  {
     if file.dir().map_err(Error::Zip)? {
       let dir_path = sanitize_file_path(file.filename().as_str().map_err(Error::Zip)?);
       let target_path = res_mods_dir.join(&dir_path);
