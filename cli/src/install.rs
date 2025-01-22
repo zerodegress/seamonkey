@@ -1,13 +1,14 @@
 use std::path::{Path, PathBuf};
 
 use async_zip::error::ZipError;
-use futures_lite::AsyncReadExt;
+use futures_lite::{AsyncReadExt, StreamExt};
 use log::{debug, warn};
+use temp_dir::TempDir;
 use tokio::{
   fs,
-  io::{AsyncBufRead, AsyncSeek, BufReader},
+  io::{AsyncBufRead, AsyncSeek, BufReader, BufWriter},
 };
-use tokio_util::compat::TokioAsyncWriteCompatExt;
+use tokio_util::{compat::TokioAsyncWriteCompatExt, io::StreamReader};
 use url::Url;
 use uuid::Uuid;
 
@@ -33,6 +34,8 @@ pub enum Error {
   ModNotFound(Url),
   #[error("User interrupt")]
   UserInterrupt,
+  #[error("Reqwest: {0}")]
+  Reqwest(reqwest::Error),
 }
 
 #[derive(Debug)]
@@ -41,7 +44,13 @@ pub struct FileConfilctCheck {
   pub metadata: Option<record::Metadata>,
 }
 
-pub async fn install(res_mods_dir: &Path, items: Vec<String>) -> Result<(), Error> {
+pub async fn install(
+  res_mods_dir: &Path,
+  items: Vec<String>,
+  temp_dir: &TempDir,
+) -> Result<(), Error> {
+  let mut req_client = reqwest::Client::new();
+
   debug!("install: {:?}", items);
   if items.is_empty() {
     Err(Error::NoModToInstall)
@@ -52,6 +61,9 @@ pub async fn install(res_mods_dir: &Path, items: Vec<String>) -> Result<(), Erro
           "file" => {
             install_from_file(res_mods_dir, PathBuf::from(url.path()).as_ref()).await?;
           }
+          "http" | "https" => {
+            install_from_web(res_mods_dir, &url, temp_dir, &mut req_client).await?
+          }
           scheme => return Err(Error::UnknownUrlScheme(scheme.to_owned())),
         }
       } else {
@@ -60,6 +72,54 @@ pub async fn install(res_mods_dir: &Path, items: Vec<String>) -> Result<(), Erro
     }
     Ok(())
   }
+}
+
+async fn install_from_web(
+  res_mods_dir: &Path,
+  mod_to_install: &Url,
+  temp_dir: &TempDir,
+  req_client: &mut reqwest::Client,
+) -> Result<(), Error> {
+  let temp_dir = temp_dir.path();
+  let temp_file = temp_dir.join(sha256::digest(mod_to_install.to_string()));
+  if !tokio::fs::try_exists(&temp_file).await.map_err(Error::Io)? {
+    let res = req_client
+      .get(mod_to_install.to_owned())
+      .send()
+      .await
+      .map_err(Error::Reqwest)?;
+    {
+      let mut reader =
+        BufReader::new(StreamReader::new(res.bytes_stream().map(|x| {
+          x.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+        })));
+      let file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temp_file)
+        .await
+        .map_err(Error::Io)?;
+      let mut writer = BufWriter::new(file);
+      tokio::io::copy(&mut reader, &mut writer)
+        .await
+        .map_err(Error::Io)?;
+    }
+  }
+  let sha256 = sha256::try_async_digest(&temp_file)
+    .await
+    .map_err(Error::Io)?;
+
+  install_zip(
+    res_mods_dir,
+    BufReader::new(fs::File::open(&temp_file).await.map_err(Error::Io)?),
+    mod_to_install.to_owned(),
+    sha256.to_owned(),
+    Uuid::new_v4().to_string(),
+    true,
+  )
+  .await?;
+
+  Ok(())
 }
 
 async fn install_from_file(res_mods_dir: &Path, mod_to_install: &Path) -> Result<(), Error> {
