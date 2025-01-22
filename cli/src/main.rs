@@ -102,6 +102,9 @@ fn print_error(err: &Error) {
       install::Error::UrlParse(err) => {
         println!("URL解析错误：{}", err);
       }
+      install::Error::Uninstall(err) => {
+        println!("安装过程中卸载旧Mod错误：{}", err);
+      }
     },
     Error::Uninstall(err) => match err {
       uninstall::Error::Io(err) => {

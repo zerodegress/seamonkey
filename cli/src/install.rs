@@ -12,7 +12,7 @@ use tokio_util::{compat::TokioAsyncWriteCompatExt, io::StreamReader};
 use url::Url;
 use uuid::Uuid;
 
-use crate::record;
+use crate::{record, uninstall};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -44,6 +44,8 @@ pub enum Error {
   ReqwestHeaderToStr(reqwest::header::ToStrError),
   #[error("Url parse: {0}")]
   UrlParse(url::ParseError),
+  #[error("Uninstall: {0}")]
+  Uninstall(uninstall::Error),
 }
 
 #[derive(Debug)]
@@ -137,6 +139,7 @@ async fn install_gh_localized_korabli_game(
           authors: vec!["北斗余晖".to_string()],
           url: "https://github.com/LocalizedKorabli/Korabli-LESTA-L10N".to_string(),
           version: latest_version.to_string(),
+          update: "localizedkorabli://game".to_string(),
         })
       )
       .await
@@ -317,6 +320,52 @@ async fn install_zip(
     },
   };
 
+  let to_remove = match record_item
+    .metadata
+    .as_ref()
+    .and_then(|metadata| {
+      record
+        .to_owned()
+        .installed
+        .into_iter()
+        .find_map(|(install_id_, record_item_)| {
+          record_item_.metadata.as_ref().and_then(|metadata_| {
+            if metadata.id == metadata_.id {
+              Some((install_id_, metadata_.to_owned(), metadata.to_owned()))
+            } else {
+              None
+            }
+          })
+        })
+    })
+    .map(|(install_id_, metadata_, metadata)| {
+      println!(
+        "检测到已安装的{}，版本{}，将要安装版本{}，是否升级？[Y/n]",
+        metadata_.id, metadata_.version, metadata.version
+      );
+      let mut buf = String::new();
+      if std::io::stdin().read_line(&mut buf).is_ok()
+        && (buf.starts_with("N") || buf.starts_with("n"))
+      {
+        Err(Error::UserInterrupt)
+      } else {
+        Ok(install_id_)
+      }
+    }) {
+    Some(Ok(install_id)) => {
+      uninstall::uninstall(res_mods_dir, vec![install_id.to_string()])
+        .await
+        .map_err(Error::Uninstall)?;
+      Some(install_id)
+    }
+    Some(Err(err)) => return Err(err),
+    None => None,
+  };
+
+  if let Some(to_remove) = to_remove {
+    record.installed.remove(&to_remove);
+  }
+
   for file in mod_to_install_zip.file().entries().iter() {
     let file_path = sanitize_file_path(file.filename().as_str().map_err(Error::Zip)?);
     let target_path = res_mods_dir.join(&file_path);
@@ -342,6 +391,7 @@ async fn install_zip(
       return Err(Error::FileConflict(file_path, check_list));
     }
   }
+  debug!("ready for install updated mod");
 
   record.installed.insert(install_id, record_item);
 

@@ -31,6 +31,7 @@ pub struct Metadata {
   pub version: String,
   pub authors: Vec<String>,
   pub url: String,
+  pub update: String,
 }
 
 #[derive(Debug, thiserror::Error)]
