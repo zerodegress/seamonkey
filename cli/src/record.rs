@@ -1,5 +1,6 @@
 use std::{
   collections::HashMap,
+  io::Cursor,
   path::{Path, PathBuf},
 };
 
@@ -55,8 +56,9 @@ async fn ensure_record(res_mods_dir: &Path) -> Result<(), Error> {
 
     let mut writer = BufWriter::new(file);
     let new_record = serde_json::to_vec(&Record::default()).map_err(Error::SerdeJson)?;
-    writer.write_all(&new_record).await.map_err(Error::Io)?;
-    writer.flush().await.map_err(Error::Io)?;
+    tokio::io::copy(&mut Cursor::new(new_record), &mut writer)
+      .await
+      .map_err(Error::Io)?;
   }
 
   Ok(())
@@ -86,12 +88,12 @@ pub async fn write_record(res_mods_dir: &Path, record: &Record) -> Result<(), Er
     .map_err(Error::Io)?;
   let mut writer = BufWriter::new(file);
 
-  writer
-    .write_all(&serde_json::to_vec(&record).map_err(Error::SerdeJson)?)
-    .await
-    .map_err(Error::Io)?;
-
-  writer.flush().await.map_err(Error::Io)?;
+  tokio::io::copy(
+    &mut Cursor::new(serde_json::to_vec(&record).map_err(Error::SerdeJson)?),
+    &mut writer,
+  )
+  .await
+  .map_err(Error::Io)?;
 
   Ok(())
 }
