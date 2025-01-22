@@ -25,7 +25,22 @@ pub async fn uninstall(res_mods_dir: &Path, items: Vec<String>) -> Result<(), Er
     .map(|item| {
       (
         item,
-        record.installed.get(item).map(|item| item.files.to_owned()),
+        record
+          .installed
+          .get(item)
+          .map(|item| item.files.to_owned())
+          .or_else(|| {
+            record
+              .installed
+              .iter()
+              .find(|(_, record)| {
+                record
+                  .metadata
+                  .as_ref()
+                  .is_some_and(|metadata| &metadata.id == item)
+              })
+              .map(|(_, record)| record.files.to_owned())
+          }),
       )
     })
     .map(|(item, x)| x.ok_or(Error::ModNotFound(item.to_owned())))
