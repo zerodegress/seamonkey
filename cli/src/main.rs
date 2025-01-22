@@ -9,6 +9,7 @@ mod cli;
 mod install;
 mod record;
 mod uninstall;
+mod update;
 
 #[tokio::main]
 async fn main() {
@@ -30,6 +31,8 @@ enum Error {
   Install(install::Error),
   #[error("Uninstall: {0}")]
   Uninstall(uninstall::Error),
+  #[error("Update: {0}")]
+  Update(update::Error),
 }
 
 fn print_error(err: &Error) {
@@ -117,6 +120,14 @@ fn print_error(err: &Error) {
         println!("卸载时访问安装记录发生错误：{}", err);
       }
     },
+    Error::Update(err) => match err {
+      update::Error::Install(err) => {
+        println!("更新Mod时发生错误：{}", err);
+      }
+      update::Error::Record(err) => {
+        println!("更新时读取记录发生错误：{}", err);
+      }
+    },
   }
 }
 
@@ -178,6 +189,9 @@ async fn run(cli: &cli::Cli, temp_dir: &TempDir) -> Result<(), Error> {
         .await
         .map_err(Error::Uninstall)
     }
+    cli::SubCommand::Update {} => update::update(res_mods_dir.as_ref(), temp_dir)
+      .await
+      .map_err(Error::Update),
   }
 }
 

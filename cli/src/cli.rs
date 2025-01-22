@@ -22,4 +22,5 @@ pub enum SubCommand {
     #[arg()]
     items: Vec<String>,
   },
+  Update {},
 }
