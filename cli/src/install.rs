@@ -36,6 +36,14 @@ pub enum Error {
   UserInterrupt,
   #[error("Reqwest: {0}")]
   Reqwest(reqwest::Error),
+  #[error("Empty request header: {0}")]
+  EmptyResponseHeader(String),
+  #[error("Invalid request header: {0}")]
+  InvalidRequestHeader(String, String),
+  #[error("Reqwest header to str: {0}")]
+  ReqwestHeaderToStr(reqwest::header::ToStrError),
+  #[error("Url parse: {0}")]
+  UrlParse(url::ParseError),
 }
 
 #[derive(Debug)]
@@ -62,8 +70,23 @@ pub async fn install(
             install_from_file(res_mods_dir, PathBuf::from(url.path()).as_ref()).await?;
           }
           "http" | "https" => {
-            install_from_web(res_mods_dir, &url, temp_dir, &mut req_client).await?
+            install_from_web(
+              res_mods_dir,
+              &url,
+              temp_dir,
+              &mut req_client,
+              None,
+              true,
+              None,
+            )
+            .await?
           }
+          "localizedkorabli" => match url.host() {
+            Some(host) if host.to_string().as_str() == "game" => {
+              install_gh_localized_korabli_game(res_mods_dir, temp_dir, &mut req_client).await?;
+            }
+            Some(_) | None => return Err(Error::UnknownUrlScheme("localized_korabli".to_owned())),
+          },
           scheme => return Err(Error::UnknownUrlScheme(scheme.to_owned())),
         }
       } else {
@@ -74,11 +97,68 @@ pub async fn install(
   }
 }
 
+async fn install_gh_localized_korabli_game(
+  res_mods_dir: &Path,
+  temp_dir: &TempDir,
+  req_client: &mut reqwest::Client,
+) -> Result<(), Error> {
+  let test_client = reqwest::Client::builder()
+    .redirect(reqwest::redirect::Policy::none()) // 禁止重定向
+    .build()
+    .map_err(Error::Reqwest)?;
+  let res = test_client
+    .get("https://github.com/LocalizedKorabli/Korabli-LESTA-L10N/releases/latest")
+    .send()
+    .await
+    .map_err(Error::Reqwest)?;
+  if let Some(location) = res.headers().get("location") {
+    let location = location.to_str().map_err(Error::ReqwestHeaderToStr)?;
+    let location_url = Url::parse(location).map_err(Error::UrlParse)?;
+    let latest_version = location_url
+      .path_segments()
+      .and_then(|segments| segments.last());
+
+    if let Some(latest_version) = latest_version {
+      install_from_web(
+        res_mods_dir,
+        &Url::parse(&format!(
+          "https://github.com/LocalizedKorabli/Korabli-LESTA-L10N/releases/download/{}/{}.mod.zip",
+          latest_version, latest_version
+        ))
+        .map_err(Error::UrlParse)?,
+        temp_dir,
+        req_client,
+        Some("localized_korabli_game".to_string()),
+        false,
+        Some(record::Metadata {
+          id: "localized_korabli_game".to_string(),
+          name: "澪刻•战舰世界莱服本地化".to_string(),
+          description: "战舰世界俄服汉化（船舶世界；Мир Корабли；Мир кораблей；Mir Korabli；World of Warships；WOWS；莱服；毛服；LESTA；本地化；中文化；中文补丁）".to_string(),
+          authors: vec!["北斗余晖".to_string()],
+          url: "https://github.com/LocalizedKorabli/Korabli-LESTA-L10N".to_string(),
+          version: latest_version.to_string(),
+        })
+      )
+      .await
+    } else {
+      Err(Error::InvalidRequestHeader(
+        "location".to_string(),
+        location.to_string(),
+      ))
+    }
+  } else {
+    Err(Error::EmptyResponseHeader("location".to_string()))
+  }
+}
+
 async fn install_from_web(
   res_mods_dir: &Path,
   mod_to_install: &Url,
   temp_dir: &TempDir,
   req_client: &mut reqwest::Client,
+  install_id: Option<String>,
+  warn_no_metadata: bool,
+  override_metadata: Option<record::Metadata>,
 ) -> Result<(), Error> {
   let temp_dir = temp_dir.path();
   let temp_file = temp_dir.join(sha256::digest(mod_to_install.to_string()));
@@ -114,8 +194,9 @@ async fn install_from_web(
     BufReader::new(fs::File::open(&temp_file).await.map_err(Error::Io)?),
     mod_to_install.to_owned(),
     sha256.to_owned(),
-    Uuid::new_v4().to_string(),
-    true,
+    install_id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+    warn_no_metadata,
+    override_metadata,
   )
   .await?;
 
@@ -149,6 +230,7 @@ async fn install_from_file(res_mods_dir: &Path, mod_to_install: &Path) -> Result
     sha256,
     Uuid::new_v4().to_string(),
     true,
+    None,
   )
   .await
 }
@@ -160,6 +242,7 @@ async fn install_zip(
   sha256: String,
   install_id: String,
   warn_no_metadata: bool,
+  override_metadata: Option<record::Metadata>,
 ) -> Result<(), Error> {
   let mut record = record::read_record(res_mods_dir)
     .await
@@ -194,7 +277,9 @@ async fn install_zip(
       .collect::<Result<Vec<_>, _>>()
       .map_err(Error::Zip)?,
     metadata: {
-      if let Some((index, _)) =
+      if let Some(override_metadata) = override_metadata {
+        Some(override_metadata)
+      } else if let Some((index, _)) =
         mod_to_install_zip
           .file()
           .entries()

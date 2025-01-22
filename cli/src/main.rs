@@ -90,6 +90,18 @@ fn print_error(err: &Error) {
       install::Error::Reqwest(err) => {
         println!("网络错误：{}", err);
       }
+      install::Error::EmptyResponseHeader(header) => {
+        println!("需求的特定响应头不存在：{}", header);
+      }
+      install::Error::InvalidRequestHeader(header, value) => {
+        println!("需求的响应头值不合法：{}:{}", header, value);
+      }
+      install::Error::ReqwestHeaderToStr(err) => {
+        println!("将响应头值转换为字符串时出错：{}", err);
+      }
+      install::Error::UrlParse(err) => {
+        println!("URL解析错误：{}", err);
+      }
     },
     Error::Uninstall(err) => match err {
       uninstall::Error::Io(err) => {
