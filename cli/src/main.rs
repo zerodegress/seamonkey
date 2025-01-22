@@ -82,6 +82,9 @@ fn print_error(err: &Error) {
           println!("解析安装记录出错：{}", err);
         }
       },
+      install::Error::UserInterrupt => {
+        println!("安装已被用户取消");
+      }
     },
     Error::Uninstall(err) => match err {
       uninstall::Error::Io(err) => {
@@ -104,32 +107,32 @@ async fn run_with_handle_error(cli: cli::Cli) {
         Error::Install(install::Error::FileConflict(_, check_list)) => {
           print_error(&err);
           println!("是否卸载冲突的所有Mod？[y/N]");
-          match crossterm::event::read() {
-            Ok(crossterm::event::Event::Key(key_event))
-              if key_event.code == crossterm::event::KeyCode::Char('Y')
-                || key_event.code == crossterm::event::KeyCode::Char('y') =>
-            {
-              if let Err(err) = {
-                let res_mods_dir = find_res_mods_dir(&cli.game_dir).await;
-                match res_mods_dir {
-                  Err(err) => Err(err),
-                  Ok(res_mods_dir) => uninstall::uninstall(
-                    &res_mods_dir,
-                    check_list
-                      .iter()
-                      .map(|check| check.installed.to_owned())
-                      .collect(),
-                  )
-                  .await
-                  .map_err(Error::Uninstall),
+          let mut buf = String::new();
+          match std::io::stdin().read_line(&mut buf).map_err(Error::Io) {
+            Ok(_) => {
+              if buf.starts_with("Y") || buf.starts_with("y") {
+                if let Err(err) = {
+                  let res_mods_dir = find_res_mods_dir(&cli.game_dir).await;
+                  match res_mods_dir {
+                    Err(err) => Err(err),
+                    Ok(res_mods_dir) => uninstall::uninstall(
+                      &res_mods_dir,
+                      check_list
+                        .iter()
+                        .map(|check| check.installed.to_owned())
+                        .collect(),
+                    )
+                    .await
+                    .map_err(Error::Uninstall),
+                  }
+                } {
+                  print_error(&err);
+                } else {
+                  continue;
                 }
-              } {
-                print_error(&err);
-              } else {
-                continue;
               }
             }
-            _ => {}
+            Err(err) => print_error(&err),
           }
         }
         err => print_error(err),

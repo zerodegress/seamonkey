@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use async_zip::error::ZipError;
 use futures_lite::AsyncReadExt;
-use log::debug;
+use log::{debug, warn};
 use tokio::{
   fs,
   io::{AsyncBufRead, AsyncSeek, BufReader},
@@ -31,6 +31,8 @@ pub enum Error {
   FileConflict(PathBuf, Vec<FileConfilctCheck>),
   #[error("Mod not found：{0}")]
   ModNotFound(Url),
+  #[error("User interrupt")]
+  UserInterrupt,
 }
 
 #[derive(Debug)]
@@ -86,6 +88,7 @@ async fn install_from_file(res_mods_dir: &Path, mod_to_install: &Path) -> Result
     from_url,
     sha256,
     Uuid::new_v4().to_string(),
+    true,
   )
   .await
 }
@@ -96,6 +99,7 @@ async fn install_zip(
   from_url: Url,
   sha256: String,
   install_id: String,
+  warn_no_metadata: bool,
 ) -> Result<(), Error> {
   let mut record = record::read_record(res_mods_dir)
     .await
@@ -154,6 +158,15 @@ async fn install_zip(
           toml::from_str(buf.as_str()).map_err(Error::DeToml)?
         })
       } else {
+        if warn_no_metadata {
+          warn!("metadata not found");
+          println!("未找到元数据，确认要安装吗？[Y/n]");
+          let mut buf = String::new();
+          std::io::stdin().read_line(&mut buf).map_err(Error::Io)?;
+          if buf.starts_with("n") || buf.starts_with("N") {
+            return Err(Error::UserInterrupt);
+          }
+        }
         None
       }
     },
