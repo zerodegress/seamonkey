@@ -31,9 +31,9 @@ fn main() -> glib::ExitCode {
       } else if cfg!(target_os = "windows") {
         ".exe"
       } else {
-        const {
-          panic!("unsupport os");
-        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "linux")))]
+        compile_error!("This program only supports Windows and Linux!");
+        ""
       }
     )));
     let game_dir_path = RefCell::new(current_dir().expect("wtf current_dir"));
