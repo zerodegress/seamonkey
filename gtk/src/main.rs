@@ -1,10 +1,16 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::TryRecvError;
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 
 use gtk::prelude::*;
 use gtk::{glib, Application, ApplicationWindow};
 use gtk4 as gtk;
+
+enum Event {
+  LogUpdate(String),
+}
 
 fn main() -> glib::ExitCode {
   env_logger::init();
@@ -14,6 +20,8 @@ fn main() -> glib::ExitCode {
     .build();
 
   application.connect_activate(|app| {
+    let (ev_tx, ev_rx) = mpsc::channel::<Event>();
+
     let mods_to_install = Arc::new(Mutex::new(Vec::<String>::new()));
 
     let window = ApplicationWindow::builder()
@@ -60,12 +68,14 @@ fn main() -> glib::ExitCode {
     vbox.append(&mods_view);
 
     let text_view = gtk::TextView::new();
+    text_view.set_editable(false);
     text_view.set_vexpand(true);
     vbox.append(&text_view);
 
     let button = gtk::Button::with_label("安装/更新");
     button.connect_clicked({
       let window = window.to_owned();
+      let ev_tx = ev_tx.to_owned();
       let text_view = text_view.to_owned();
       let mods_to_install = Arc::clone(&mods_to_install);
       move |_| {
@@ -83,46 +93,24 @@ fn main() -> glib::ExitCode {
             buffer.set_text("");
 
             if let Some(stdout) = child.stdout.take() {
-              println!("az");
-              let mut reader = BufReader::new(stdout);
-              let mut buf = String::new();
-              while let Ok(x) = reader.read_line(&mut buf) {
-                if x == 0 {
-                  break;
+              std::thread::spawn({
+                let ev_tx = ev_tx.to_owned();
+                move || {
+                  let mut reader = BufReader::new(stdout);
+                  let mut all_buf = String::new();
+                  let mut buf = String::new();
+                  while let Ok(x) = reader.read_line(&mut buf) {
+                    if x == 0 {
+                      break;
+                    }
+                    all_buf += &buf;
+                    let _ = ev_tx.send(Event::LogUpdate(all_buf.to_owned()));
+                  }
+                  all_buf += "Mod更新已完成";
+                  let _ = ev_tx.send(Event::LogUpdate(all_buf.to_owned()));
                 }
-                buffer.set_text(&buf);
-              }
-            }
-
-            if let Err(err) = child.wait() {
-              let dialog = gtk::MessageDialog::builder()
-                .transient_for(&window)
-                .modal(true)
-                .message_type(gtk::MessageType::Warning)
-                .buttons(gtk::ButtonsType::Ok)
-                .title("错误")
-                .text("运行Mod管理器核心失败！")
-                .build();
-
-              eprintln!("{:?}", err);
-
-              dialog.run_async(|dialog, _| {
-                dialog.close();
               });
             }
-
-            let dialog = gtk::MessageDialog::builder()
-              .transient_for(&window)
-              .modal(true)
-              .message_type(gtk::MessageType::Info)
-              .buttons(gtk::ButtonsType::Ok)
-              .title("完成！")
-              .text("Mod已安装/更新")
-              .build();
-
-            dialog.run_async(|dialog, _| {
-              dialog.close();
-            });
           }
           Err(err) => {
             let dialog = gtk::MessageDialog::builder()
@@ -144,6 +132,25 @@ fn main() -> glib::ExitCode {
       }
     });
     vbox.append(&button);
+
+    glib::source::timeout_add_local(Duration::from_millis(100), {
+      let text_view = text_view.to_owned();
+      let ev_rx = ev_rx;
+      move || match ev_rx.try_recv() {
+        Ok(ev) => {
+          match ev {
+            Event::LogUpdate(log) => {
+              text_view.buffer().set_text(&log);
+            }
+          }
+          glib::ControlFlow::Continue
+        }
+        Err(err) => match err {
+          TryRecvError::Disconnected => glib::ControlFlow::Break,
+          TryRecvError::Empty => glib::ControlFlow::Continue,
+        },
+      }
+    });
 
     window.present();
   });
