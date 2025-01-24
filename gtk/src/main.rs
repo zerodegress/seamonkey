@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 use std::env::current_dir;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::rc::Rc;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use gtk::prelude::*;
@@ -27,21 +29,24 @@ fn main() -> glib::ExitCode {
     .build();
 
   application.connect_activate(|app| {
-    let event_queue = RefCell::new(VecDeque::<Event>::new());
-    let mods_to_install = RefCell::new(Vec::<String>::new());
-    let seamonkey_cli_path = RefCell::new(current_dir().expect("wtf current_dir").join(format!(
-      "seamonkey_cli{}",
-      if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
-        ""
-      } else if cfg!(target_os = "windows") {
-        ".exe"
-      } else {
-        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "linux")))]
-        compile_error!("This program only supports Windows and Linux!");
-        ""
-      }
+    let (ev_tx, ev_rx) = mpsc::channel::<Event>();
+    let event_queue = Rc::new(RefCell::new(VecDeque::<Event>::new()));
+    let mods_to_install = Rc::new(RefCell::new(Vec::<String>::new()));
+    let seamonkey_cli_path = Rc::new(RefCell::new(current_dir().expect("wtf current_dir").join(
+      format!(
+        "seamonkey_cli{}",
+        if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
+          ""
+        } else if cfg!(target_os = "windows") {
+          ".exe"
+        } else {
+          #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "linux")))]
+          compile_error!("This program only supports Windows and Linux!");
+          ""
+        }
+      ),
     )));
-    let game_dir_path = RefCell::new(current_dir().expect("wtf current_dir"));
+    let game_dir_path = Rc::new(RefCell::new(current_dir().expect("wtf current_dir")));
 
     let window = ApplicationWindow::builder()
       .application(app)
@@ -180,13 +185,14 @@ fn main() -> glib::ExitCode {
     button.connect_clicked({
       let window = window.to_owned();
       let text_view = text_view.to_owned();
-      let mods_to_install = RefCell::clone(&mods_to_install);
-      let event_queue = RefCell::clone(&event_queue);
-      let game_dir_path = RefCell::clone(&game_dir_path);
-      let seamonkey_cli_path = RefCell::clone(&seamonkey_cli_path);
+      let mods_to_install = mods_to_install.to_owned();
+      let game_dir_path = game_dir_path.to_owned();
+      let seamonkey_cli_path = seamonkey_cli_path.to_owned();
 
       move |_| {
         let mods_to_install = mods_to_install.borrow().to_owned();
+        println!("{:?}", seamonkey_cli_path.borrow().as_path());
+        println!("{:?}", game_dir_path.borrow().as_path());
         match Command::new(seamonkey_cli_path.borrow().as_path())
           .arg("-yg")
           .arg(game_dir_path.borrow().as_path())
@@ -201,7 +207,7 @@ fn main() -> glib::ExitCode {
 
             if let Some(stdout) = child.stdout.take() {
               std::thread::spawn({
-                let event_queue = event_queue.to_owned();
+                let ev_tx = ev_tx.to_owned();
                 move || {
                   let mut reader = BufReader::new(stdout);
                   let mut all_buf = String::new();
@@ -211,14 +217,10 @@ fn main() -> glib::ExitCode {
                       break;
                     }
                     all_buf += &buf;
-                    event_queue
-                      .borrow_mut()
-                      .push_back(Event::LogUpdate(all_buf.to_owned()));
+                    let _ = ev_tx.send(Event::LogUpdate(all_buf.to_owned()));
                   }
                   all_buf += "Mod更新已完成";
-                  event_queue
-                    .borrow_mut()
-                    .push_back(Event::LogUpdate(all_buf.to_owned()));
+                  let _ = ev_tx.send(Event::LogUpdate(all_buf.to_owned()));
                 }
               });
             }
@@ -248,6 +250,14 @@ fn main() -> glib::ExitCode {
       let event_queue = RefCell::clone(&event_queue);
       let text_view = text_view.to_owned();
       move || {
+        match ev_rx.recv() {
+          Ok(ev) => match ev {
+            Event::LogUpdate(log) => {
+              text_view.buffer().set_text(&log);
+            }
+          },
+          Err(_err) => {}
+        }
         if let Some(ev) = event_queue.borrow_mut().pop_front() {
           match ev {
             Event::LogUpdate(log) => {
