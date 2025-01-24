@@ -73,21 +73,13 @@ fn main() -> glib::ExitCode {
         let seamonkey_cli_entry = seamonkey_cli_entry.to_owned();
         let seamonkey_cli_path = seamonkey_cli_path.to_owned();
         move |_| {
-          let file_chooser = gtk::FileChooserDialog::new(
-            Some("选择游戏根目录"),
-            Some(&window),
-            gtk::FileChooserAction::Open,
-            &[
-              ("取消", gtk::ResponseType::Cancel),
-              ("打开", gtk::ResponseType::Accept),
-            ],
-          );
+          let file_dialog = gtk::FileDialog::new();
 
-          file_chooser.run_async({
+          file_dialog.open(Some(&window), None::<&gio::Cancellable>, {
             let seamonkey_cli_entry = seamonkey_cli_entry.to_owned();
             let seamonkey_cli_path = seamonkey_cli_path.to_owned();
-            move |file_chooser, _| {
-              if let Some(file) = file_chooser.file() {
+            move |result| {
+              if let Ok(file) = result {
                 if let Some(file_path) = file.path() {
                   let file_path_string = file_path.to_string_lossy().to_string();
                   seamonkey_cli_entry.set_text(&file_path_string);
@@ -95,7 +87,6 @@ fn main() -> glib::ExitCode {
                   *seamonkey_cli_path = file_path;
                 }
               }
-              file_chooser.close();
             }
           });
         }
@@ -124,21 +115,13 @@ fn main() -> glib::ExitCode {
         let game_dir_entry = game_dir_entry.to_owned();
         let game_dir_path = game_dir_path.to_owned();
         move |_| {
-          let file_chooser = gtk::FileChooserDialog::new(
-            Some("选择游戏根目录"),
-            Some(&window),
-            gtk::FileChooserAction::SelectFolder,
-            &[
-              ("取消", gtk::ResponseType::Cancel),
-              ("打开", gtk::ResponseType::Accept),
-            ],
-          );
+          let file_dialog = gtk::FileDialog::new();
 
-          file_chooser.run_async({
+          file_dialog.select_folder(Some(&window), None::<&gio::Cancellable>, {
             let game_dir_entry = game_dir_entry.to_owned();
             let game_dir_path = game_dir_path.to_owned();
-            move |file_chooser, _| {
-              if let Some(file) = file_chooser.file() {
+            move |result| {
+              if let Ok(file) = result {
                 if let Some(file_path) = file.path() {
                   let file_path_string = file_path.to_string_lossy().to_string();
                   game_dir_entry.set_text(&file_path_string);
@@ -146,7 +129,6 @@ fn main() -> glib::ExitCode {
                   *game_dir_path = file_path;
                 }
               }
-              file_chooser.close();
             }
           });
         }

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 env_logger = "0.11.6"
+gio = "0.20.7"
 glib = "0.20.7"
-gtk4 = "0.9.5"
+gtk4 = { version = "0.9.5", features = ["v4_10"] }
 log = "0.4.25"
