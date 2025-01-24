@@ -9,7 +9,7 @@ use std::env::current_dir;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
 
 use gtk::prelude::*;
@@ -30,7 +30,6 @@ fn main() -> glib::ExitCode {
 
   application.connect_activate(|app| {
     let (ev_tx, ev_rx) = mpsc::channel::<Event>();
-    let event_queue = Rc::new(RefCell::new(VecDeque::<Event>::new()));
     let mods_to_install = Rc::new(RefCell::new(Vec::<String>::new()));
     let seamonkey_cli_path = Rc::new(RefCell::new(current_dir().expect("wtf current_dir").join(
       format!(
@@ -247,25 +246,18 @@ fn main() -> glib::ExitCode {
     vbox.append(&button);
 
     glib::source::timeout_add_local(Duration::from_millis(100), {
-      let event_queue = RefCell::clone(&event_queue);
       let text_view = text_view.to_owned();
-      move || {
-        match ev_rx.recv() {
-          Ok(ev) => match ev {
-            Event::LogUpdate(log) => {
-              text_view.buffer().set_text(&log);
-            }
-          },
-          Err(_err) => {}
-        }
-        if let Some(ev) = event_queue.borrow_mut().pop_front() {
-          match ev {
-            Event::LogUpdate(log) => {
-              text_view.buffer().set_text(&log);
-            }
+      move || match ev_rx.try_recv() {
+        Ok(ev) => match ev {
+          Event::LogUpdate(log) => {
+            text_view.buffer().set_text(&log);
+            glib::ControlFlow::Continue
           }
-        }
-        glib::ControlFlow::Continue
+        },
+        Err(err) => match err {
+          TryRecvError::Disconnected => glib::ControlFlow::Break,
+          TryRecvError::Empty => glib::ControlFlow::Continue,
+        },
       }
     });
 
