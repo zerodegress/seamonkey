@@ -152,7 +152,7 @@ fn main() -> glib::ExitCode {
       {
         let check_button = gtk::CheckButton::new();
         check_button.connect_toggled({
-          let mods_to_install = RefCell::clone(&mods_to_install);
+          let mods_to_install = mods_to_install.to_owned();
           move |button| {
             let mut mod_to_install = mods_to_install.borrow_mut();
             if button.is_active() {
