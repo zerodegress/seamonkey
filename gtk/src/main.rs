@@ -230,7 +230,7 @@ fn main() -> glib::ExitCode {
               .message_type(gtk::MessageType::Warning)
               .buttons(gtk::ButtonsType::Ok)
               .title("错误")
-              .text("运行Mod管理器核心失败！")
+              .text(format!("运行Mod管理器核心失败：{}", err))
               .build();
 
             eprintln!("{:?}", err);
