@@ -49,7 +49,7 @@ fn main() -> glib::ExitCode {
 
     let window = ApplicationWindow::builder()
       .application(app)
-      .title("First GTK Program")
+      .title("海猴模组安装助手")
       .default_width(350)
       .default_height(70)
       .build();
