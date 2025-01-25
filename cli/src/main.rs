@@ -39,93 +39,93 @@ fn print_error(err: &Error) {
   error!("{:?}", err);
   match err {
     Error::GameDirNotProvided => {
-      println!("未提供游戏目录");
+      eprintln!("未提供游戏目录");
     }
     Error::Io(err) => {
-      println!("IO错误：{}", err);
+      eprintln!("IO错误：{}", err);
     }
     Error::IncorrectGameDirectoryStructure => {
-      println!("游戏目录结构错误");
+      eprintln!("游戏目录结构错误");
     }
     Error::Install(err) => match err {
       install::Error::Io(err) => {
-        println!("安装时发生IO错误：{}", err);
+        eprintln!("安装时发生IO错误：{}", err);
       }
       install::Error::Zip(err) => {
-        println!("安装时访问压缩包出错：{}", err);
+        eprintln!("安装时访问压缩包出错：{}", err);
       }
       install::Error::UnknownUrlScheme(scheme) => {
-        println!("未知的URL方案：{}", scheme);
+        eprintln!("未知的URL方案：{}", scheme);
       }
       install::Error::NoModToInstall => {
-        println!("未指定要安装的Mod")
+        eprintln!("未指定要安装的Mod")
       }
       install::Error::ModNotFound(url) => {
-        println!("指定的Mod未找到：{}", url);
+        eprintln!("指定的Mod未找到：{}", url);
       }
       install::Error::FileConflict(file_path, check_list) => {
-        println!("要安装的Mod与已有的Mod发生文件冲突：{:?}", file_path);
+        eprintln!("要安装的Mod与已有的Mod发生文件冲突：{:?}", file_path);
         for check in check_list {
           if let Some(metadata) = &check.metadata {
-            println!(
+            eprintln!(
               "  - {}({}), 来自{}",
               metadata.name, metadata.id, metadata.url
             );
           } else {
-            println!("  - {}, 元数据未找到", check.installed);
+            eprintln!("  - {}, 元数据未找到", check.installed);
           }
         }
       }
       install::Error::DeToml(err) => {
-        println!("解析Mod元数据出错: {}", err);
+        eprintln!("解析Mod元数据出错: {}", err);
       }
       install::Error::Record(err) => match err {
         record::Error::Io(err) => {
-          println!("读取安装记录发生IO错误：{}", err);
+          eprintln!("读取安装记录发生IO错误：{}", err);
         }
         record::Error::SerdeJson(err) => {
-          println!("解析安装记录出错：{}", err);
+          eprintln!("解析安装记录出错：{}", err);
         }
       },
       install::Error::UserInterrupt => {
-        println!("安装已被用户取消");
+        eprintln!("安装已被用户取消");
       }
       install::Error::Reqwest(err) => {
-        println!("网络错误：{}", err);
+        eprintln!("网络错误：{}", err);
       }
       install::Error::EmptyResponseHeader(header) => {
-        println!("需求的特定响应头不存在：{}", header);
+        eprintln!("需求的特定响应头不存在：{}", header);
       }
       install::Error::InvalidRequestHeader(header, value) => {
-        println!("需求的响应头值不合法：{}:{}", header, value);
+        eprintln!("需求的响应头值不合法：{}:{}", header, value);
       }
       install::Error::ReqwestHeaderToStr(err) => {
-        println!("将响应头值转换为字符串时出错：{}", err);
+        eprintln!("将响应头值转换为字符串时出错：{}", err);
       }
       install::Error::UrlParse(err) => {
-        println!("URL解析错误：{}", err);
+        eprintln!("URL解析错误：{}", err);
       }
       install::Error::Uninstall(err) => {
-        println!("安装过程中卸载旧Mod错误：{}", err);
+        eprintln!("安装过程中卸载旧Mod错误：{}", err);
       }
     },
     Error::Uninstall(err) => match err {
       uninstall::Error::Io(err) => {
-        println!("卸载时IO发生错误: {}", err);
+        eprintln!("卸载时IO发生错误: {}", err);
       }
       uninstall::Error::ModNotFound(not_found) => {
-        println!("未找到要卸载的Mod：{}", not_found);
+        eprintln!("未找到要卸载的Mod：{}", not_found);
       }
       uninstall::Error::Record(err) => {
-        println!("卸载时访问安装记录发生错误：{}", err);
+        eprintln!("卸载时访问安装记录发生错误：{}", err);
       }
     },
     Error::Update(err) => match err {
       update::Error::Install(err) => {
-        println!("更新Mod时发生错误：{}", err);
+        eprintln!("更新Mod时发生错误：{}", err);
       }
       update::Error::Record(err) => {
-        println!("更新时读取记录发生错误：{}", err);
+        eprintln!("更新时读取记录发生错误：{}", err);
       }
     },
   }
@@ -137,7 +137,7 @@ async fn run_with_handle_error(cli: cli::Cli, temp_dir: &TempDir) {
       match &err {
         Error::Install(install::Error::FileConflict(_, check_list)) => {
           print_error(&err);
-          println!("是否卸载冲突的所有Mod？[y/N]");
+          eprintln!("是否卸载冲突的所有Mod？[y/N]");
           if cli.yes_for_all || {
             let mut buf = String::new();
             match std::io::stdin().read_line(&mut buf).map_err(Error::Io) {

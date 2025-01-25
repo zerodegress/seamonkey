@@ -338,7 +338,7 @@ async fn install_zip(
       } else {
         if options.warn_no_metadata && !options.yes_for_all {
           warn!("metadata not found");
-          println!("未找到元数据，确认要安装吗？[Y/n]");
+          eprintln!("未找到元数据，确认要安装吗？[Y/n]");
           let mut buf = String::new();
           std::io::stdin().read_line(&mut buf).map_err(Error::Io)?;
           if buf.starts_with("n") || buf.starts_with("N") {
@@ -369,7 +369,7 @@ async fn install_zip(
         })
     })
     .map(|(install_id_, metadata_, metadata)| {
-      println!(
+      eprintln!(
         "检测到已安装的{}，版本{}，将要安装版本{}，是否升级？[Y/n]",
         metadata_.id, metadata_.version, metadata.version
       );
